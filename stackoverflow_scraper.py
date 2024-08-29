@@ -21,8 +21,23 @@ def convert_date(time_str):
 def safe_get_text(element, default='0'):
     return element.get_text() if element else default
 
+def extract_closed_reason_and_date(question_soup):
+    closed_notice = question_soup.select_one('.s-notice.s-notice__info.post-notice')
+    if closed_notice:
+        # Extract only the first sentence from the closed notice
+        reason = closed_notice.find('div').get_text(strip=True).split('. ')[0] + '.'
+        
+        # Extract the closed date from the <span> element
+        closed_date_element = closed_notice.select_one('.fw-nowrap.fc-black-500 .relativetime')
+        closed_date_str = closed_date_element['title'] if closed_date_element else None
+        
+        closed_date = convert_date(closed_date_str.replace('Z', '').replace('T', ' ')) if closed_date_str else None
+        
+        return reason, closed_date
+    return "Closed for an unspecified reason.", None
+
 def get_questions(tag=None):
-    url = "https://stackoverflow.com/questions"
+    url = "https://stackoverflow.com/questions?tab=newest&page=7"
     if tag:
         url += f"?tagged={tag}"
     response = requests.get(url)
@@ -69,6 +84,21 @@ def get_questions(tag=None):
         # Check if the question has an accepted answer
         has_accepted_answer = "has-accepted-answer" in question.select_one('.has-answers')['class'] if question.select_one('.has-answers') else False
         accepted_answer_id = question_id if has_accepted_answer else None
+
+        # Check if the question is closed
+        title = safe_get_text(question.select_one('.s-post-summary--content-title a'))
+        is_closed = "[closed]" in title
+        closed_reason = None
+        closed_date = None
+        
+        if is_closed:
+            # Go into the question page to extract the closed reason
+            question_page = requests.get("https://stackoverflow.com" + question.select_one('.s-post-summary--content-title a')['href'])
+            question_soup = BeautifulSoup(question_page.text, 'html.parser')
+            closed_reason, closed_date = extract_closed_reason_and_date(question_soup)
+            
+            
+        
         
         # Add to the list
         questions.append({
@@ -84,8 +114,8 @@ def get_questions(tag=None):
             'last_edit_date': last_activity_date,
             'question_id': question_id,
             'link': "https://stackoverflow.com" + question.select_one('.s-post-summary--content-title a')['href'],
-            'closed_date': None,  # Couldn't find an example where the question was closed so find one and implement it
-            'closed_reason': None,  
+            'closed_date': closed_date,  # Have to check if closed is in the title
+            'closed_reason': closed_reason,  
             'title': safe_get_text(question.select_one('.s-post-summary--content-title a'))
         })
     
